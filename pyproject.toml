@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accel-deform-registration"
+version = "0.1.0"
+description = "GPU-accelerated Free-Form Deformation (FFD) registration for 2D and 3D images"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Lukas Glandorf"}
+]
+keywords = [
+    "image registration",
+    "deformable registration", 
+    "free-form deformation",
+    "FFD",
+    "B-spline",
+    "medical imaging",
+    "OCT",
+    "OCTA",
+    "GPU acceleration",
+    "PyTorch"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "numpy>=1.20",
+    "torch>=1.9",
+    "scipy>=1.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "matplotlib>=3.5",
+]
+examples = [
+    "matplotlib>=3.5",
+    "tifffile>=2023.1",
+    "gdown>=4.6",  # For downloading test data from Google Drive
+]
+monai = [
+    "monai>=1.0",  # For optimized MI loss functions
+]
+all = [
+    "accel-deform-registration[dev,examples,monai]",
+]
+
+[project.urls]
+Homepage = "https://github.com/lukasglandorf/accel-deform-registration"
+Repository = "https://github.com/lukasglandorf/accel-deform-registration"
+Issues = "https://github.com/lukasglandorf/accel-deform-registration/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["accel_deform_registration*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
