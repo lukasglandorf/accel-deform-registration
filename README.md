@@ -23,6 +23,11 @@ git clone https://github.com/lukasglandorf/accel-deform-registration.git
 cd accel-deform-registration
 pip install -e ".[all]"
 ```
+### Recommended installation
+
+```bash
+pip install -e ".[all]".
+```
 
 ### Basic installation
 
