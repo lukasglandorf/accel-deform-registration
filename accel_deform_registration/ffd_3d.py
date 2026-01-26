@@ -422,14 +422,21 @@ def apply_ffd_3d(
     """
     Apply a 3D displacement field to warp a volume.
     
+    Preserves quantitative values including negative numbers. No normalization
+    is applied to the input data, making this suitable for velocity fields,
+    phase images, or other quantitative measurements.
+    
     Parameters
     ----------
     volume : ndarray
-        Input volume of shape (Z, Y, X).
+        Input volume of shape (Z, Y, X). Can contain any float values
+        including negative numbers.
     displacement_field : ndarray
         Displacement field of shape (Z, Y, X, 3) in voxel units.
     padding_mode : str
         Padding mode: 'border', 'zeros', or 'reflection'. Default 'border'.
+        Note: 'zeros' will pad with actual zeros, which may not be appropriate
+        for quantitative data where zero has meaning.
     device : torch.device, optional
         PyTorch device. If None, auto-detect.
     
@@ -437,18 +444,20 @@ def apply_ffd_3d(
     -------
     warped : ndarray
         Warped volume of shape (Z, Y, X), same dtype as input.
+        Values are preserved (no normalization applied).
+    
+    Notes
+    -----
+    For quantitative data with meaningful zero values, consider using
+    padding_mode='border' to avoid introducing artificial zeros at boundaries.
     """
     device = get_default_device(device)
     
     Z, Y, X = volume.shape
     original_dtype = volume.dtype
     
-    # Normalize volume
-    vol_min, vol_max = volume.min(), volume.max()
-    vol_norm = (volume.astype(np.float32) - vol_min) / (vol_max - vol_min + 1e-8)
-    
-    # Convert to tensors
-    vol_t = torch.from_numpy(vol_norm).unsqueeze(0).unsqueeze(0).to(device)
+    # Convert to float32 tensor WITHOUT normalization to preserve quantitative values
+    vol_t = torch.from_numpy(volume.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
     
     # Create sampling grid
     zz, yy, xx = torch.meshgrid(
@@ -473,9 +482,8 @@ def apply_ffd_3d(
         padding_mode=padding_mode, align_corners=True
     )
     
-    # Convert back
+    # Convert back without denormalization
     warped = warped_t.squeeze().cpu().numpy()
-    warped = warped * (vol_max - vol_min) + vol_min
     
     return warped.astype(original_dtype)
 

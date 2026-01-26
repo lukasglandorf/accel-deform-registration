@@ -371,14 +371,21 @@ def apply_ffd_2d(
     """
     Apply a 2D displacement field to warp an image.
     
+    Preserves quantitative values including negative numbers. No normalization
+    is applied to the input data, making this suitable for velocity fields,
+    phase images, or other quantitative measurements.
+    
     Parameters
     ----------
     image : ndarray
-        Input image of shape (Y, X).
+        Input image of shape (Y, X). Can contain any float values
+        including negative numbers.
     displacement_field : ndarray
         Displacement field of shape (Y, X, 2) in pixel units.
     padding_mode : str
         Padding mode: 'border', 'zeros', or 'reflection'. Default 'border'.
+        Note: 'zeros' will pad with actual zeros, which may not be appropriate
+        for quantitative data where zero has meaning.
     device : torch.device, optional
         PyTorch device. If None, auto-detect.
     
@@ -386,18 +393,20 @@ def apply_ffd_2d(
     -------
     warped : ndarray
         Warped image of shape (Y, X), same dtype as input.
+        Values are preserved (no normalization applied).
+    
+    Notes
+    -----
+    For quantitative data with meaningful zero values, consider using
+    padding_mode='border' to avoid introducing artificial zeros at boundaries.
     """
     device = get_default_device(device)
     
     Y, X = image.shape
     original_dtype = image.dtype
     
-    # Normalize image
-    img_min, img_max = image.min(), image.max()
-    img_norm = (image.astype(np.float32) - img_min) / (img_max - img_min + 1e-8)
-    
-    # Convert to tensors
-    img_t = torch.from_numpy(img_norm).unsqueeze(0).unsqueeze(0).to(device)
+    # Convert to float32 tensor WITHOUT normalization to preserve quantitative values
+    img_t = torch.from_numpy(image.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
     
     # Create sampling grid
     yy, xx = torch.meshgrid(
@@ -420,9 +429,8 @@ def apply_ffd_2d(
         padding_mode=padding_mode, align_corners=True
     )
     
-    # Convert back
+    # Convert back without denormalization
     warped = warped_t.squeeze().cpu().numpy()
-    warped = warped * (img_max - img_min) + img_min
     
     return warped.astype(original_dtype)
 
