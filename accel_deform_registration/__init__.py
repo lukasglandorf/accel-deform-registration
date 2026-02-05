@@ -67,6 +67,12 @@ Utilities
 - shepp_logan_2d: Generate 2D Shepp-Logan phantom
 - shepp_logan_3d: Generate 3D Shepp-Logan phantom
 - compare_loss_functions: Compare all loss functions with different approaches
+
+Diffeomorphic Registration
+--------------------------
+- detect_folds: Detect folding (negative Jacobian) in displacement field
+- get_jacobian_determinant_map: Compute Jacobian determinant for visualization
+- JacobianStats: Statistics about deformation field topology
 """
 
 __version__ = "0.1.0"
@@ -107,6 +113,19 @@ from .ffd_common import get_default_device, normalize_image
 from .phantoms import shepp_logan_2d, shepp_logan_3d, apply_random_deformation
 from .comparison import compare_loss_functions, get_available_loss_functions, RegistrationResult
 
+# Diffeomorphic utilities
+from .diffeomorphic import (
+    detect_folds,
+    get_jacobian_determinant_map,
+    JacobianStats,
+    jacobian_penalty,
+    compute_jacobian_determinant_2d,
+    compute_jacobian_determinant_3d,
+    integrate_svf,
+    scaling_squaring_2d,
+    scaling_squaring_3d,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -145,4 +164,14 @@ __all__ = [
     "compare_loss_functions",
     "get_available_loss_functions",
     "RegistrationResult",
+    # Diffeomorphic utilities
+    "detect_folds",
+    "get_jacobian_determinant_map",
+    "JacobianStats",
+    "jacobian_penalty",
+    "compute_jacobian_determinant_2d",
+    "compute_jacobian_determinant_3d",
+    "integrate_svf",
+    "scaling_squaring_2d",
+    "scaling_squaring_3d",
 ]

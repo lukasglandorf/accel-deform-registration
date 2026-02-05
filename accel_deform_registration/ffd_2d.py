@@ -22,6 +22,11 @@ from numpy.typing import NDArray
 
 from .ffd_common import get_default_device, normalize_image, compute_validity_mask_2d
 from .losses import BaseLoss, CorrelationLoss
+from .diffeomorphic import (
+    jacobian_penalty,
+    detect_folds,
+    integrate_svf,
+)
 
 
 def register_ffd_2d(
@@ -30,6 +35,9 @@ def register_ffd_2d(
     grid_spacing: Union[int, Tuple[int, int]] = 100,
     smooth_weight: float = 0.005,
     bending_weight: float = 0.01,
+    jacobian_penalty_weight: float = 0.0,
+    use_svf: bool = False,
+    svf_steps: int = 7,
     n_iterations: int = 2000,
     lr: float = 0.5,
     padding_mode: str = 'border',
@@ -37,6 +45,7 @@ def register_ffd_2d(
     loss_fn: Optional[BaseLoss] = None,
     device: Optional[torch.device] = None,
     verbose: bool = True,
+    warn_on_folds: bool = True,
 ) -> Tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32], 
            NDArray[np.bool_], Dict[str, Any]]:
     """
@@ -70,6 +79,21 @@ def register_ffd_2d(
         - Range: [0, 1], typical values 0.001-0.1
         - Set higher (0.05-0.1) for smoother, more physically plausible deformations
         - Set lower (0.001-0.005) to allow sharper local deformations
+    jacobian_penalty_weight : float
+        Weight for Jacobian determinant penalty to discourage folding.
+        Penalizes regions where det(J) < 0.01 (near-singular or folded).
+        - Default: 0.0 (disabled)
+        - Range: [0, 10], typical values 0.1-2.0 when enabled
+        - Set > 0 if deformation field contains folds (topology violations)
+    use_svf : bool
+        If True, use Stationary Velocity Field (SVF) parameterization with
+        scaling-and-squaring to guarantee diffeomorphic (fold-free) transforms.
+        More computationally expensive but mathematically guarantees det(J) > 0.
+        Default False.
+    svf_steps : int
+        Number of scaling-and-squaring steps for SVF integration. More steps
+        = more accurate but slower. Default 7 (divides velocity by 128).
+        Only used when use_svf=True.
     n_iterations : int
         Number of optimization iterations. Default 2000.
     lr : float
@@ -88,6 +112,10 @@ def register_ffd_2d(
         PyTorch device. If None, auto-detect (CUDA > MPS > CPU).
     verbose : bool
         Print progress information. Default True.
+    warn_on_folds : bool
+        If True (default), emit a warning if the final deformation field
+        contains folds (negative Jacobian determinant). Set to False to
+        suppress this warning.
     
     Returns
     -------
@@ -258,15 +286,26 @@ def register_ffd_2d(
     sample_grid = compute_sample_grid()
     initial_loss = None
     
+    if verbose and use_svf:
+        print(f"    Using SVF parameterization with {svf_steps} integration steps")
+    if verbose and jacobian_penalty_weight > 0:
+        print(f"    Jacobian penalty weight: {jacobian_penalty_weight}")
+    
     # Optimization loop
     for i in range(n_iterations):
         optimizer.zero_grad()
         
         # Upsample control point displacements to full resolution
-        disp_full = F.grid_sample(
+        disp_upsampled = F.grid_sample(
             ctrl_disps, sample_grid, mode='bilinear',
             padding_mode=padding_mode, align_corners=True
         )
+        
+        # If using SVF, integrate velocity field to get diffeomorphic displacement
+        if use_svf:
+            disp_full = integrate_svf(disp_upsampled, ndim=2, n_steps=svf_steps)
+        else:
+            disp_full = disp_upsampled
         
         # Normalize displacements to [-1, 1] grid coordinates
         disp_normalized = disp_full.clone()
@@ -301,8 +340,15 @@ def register_ffd_2d(
             loss_bending = loss_bending + (d2_dy2 ** 2).mean()
         loss_bend = bending_weight * loss_bending
         
+        # Jacobian penalty (discourage folding)
+        loss_jacobian = torch.tensor(0.0, device=device)
+        if jacobian_penalty_weight > 0:
+            loss_jacobian = jacobian_penalty_weight * jacobian_penalty(
+                disp_full, ndim=2, eps=0.01, mode='relu'
+            )
+        
         # Total loss
-        loss = loss_similarity + loss_smooth + loss_bend
+        loss = loss_similarity + loss_smooth + loss_bend + loss_jacobian
         
         if initial_loss is None:
             initial_loss = loss.item()
@@ -319,16 +365,21 @@ def register_ffd_2d(
         
         if verbose and (i + 1) % 50 == 0:
             max_d = disp_magnitude.max().item()
+            jac_str = f", jac={loss_jacobian.item():.4f}" if jacobian_penalty_weight > 0 else ""
             print(f"      Iter {i+1}: loss={loss.item():.4f} "
                   f"(corr={-loss_similarity.item():.4f}, smooth={loss_smooth.item():.4f}, "
-                  f"bend={loss_bend.item():.4f}, max_d={max_d:.1f}px)")
+                  f"bend={loss_bend.item():.4f}{jac_str}, max_d={max_d:.1f}px)")
     
     # Extract final displacement field
     with torch.no_grad():
-        disp_full = F.grid_sample(
+        disp_upsampled = F.grid_sample(
             ctrl_disps, sample_grid, mode='bilinear',
             padding_mode=padding_mode, align_corners=True
         )
+        if use_svf:
+            disp_full = integrate_svf(disp_upsampled, ndim=2, n_steps=svf_steps)
+        else:
+            disp_full = disp_upsampled
         disp_voxels = disp_full.squeeze().permute(1, 2, 0).cpu().numpy()
     
     # Extract control point displacements (interior only if boundary layer used)
@@ -339,6 +390,9 @@ def register_ffd_2d(
     
     # Compute validity mask
     validity_mask = compute_validity_mask_2d(disp_voxels, (Y, X), margin=1.0)
+    
+    # Detect folds in final displacement field
+    fold_stats = detect_folds(disp_voxels, ndim=2, warn=warn_on_folds)
     
     info = {
         "iterations": len(losses),
@@ -353,11 +407,26 @@ def register_ffd_2d(
         "grid_spacing": (spacing_y, spacing_x),  # Actual spacing used
         "grid_offset": (offset_y, offset_x),  # Offset from origin (for centering)
         "use_boundary_layer": use_boundary_layer,
+        "use_svf": use_svf,
+        "jacobian_penalty_weight": jacobian_penalty_weight,
+        "jacobian_stats": {
+            "min_det": fold_stats.min_det,
+            "max_det": fold_stats.max_det,
+            "mean_det": fold_stats.mean_det,
+            "num_folds": fold_stats.num_folds,
+            "fold_fraction": fold_stats.fold_fraction,
+            "has_folds": fold_stats.has_folds,
+        },
     }
     
     if verbose:
         print(f"    Correlation: {info['initial_correlation']:.4f} → {info['final_correlation']:.4f}")
         print(f"    Max displacement: {info['max_displacement']:.1f} pixels")
+        if fold_stats.has_folds:
+            print(f"    ⚠ Folds detected: {fold_stats.num_folds} pixels ({fold_stats.fold_fraction*100:.2f}%), "
+                  f"min det(J)={fold_stats.min_det:.4f}")
+        else:
+            print(f"    ✓ No folds detected, min det(J)={fold_stats.min_det:.4f}")
     
     return disp_voxels, ctrl_disps_out, ctrl_positions, validity_mask, info
 
