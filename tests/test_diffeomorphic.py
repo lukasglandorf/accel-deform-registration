@@ -163,53 +163,101 @@ class TestJacobianPenalty:
     """Tests for the differentiable Jacobian penalty."""
     
     def test_zero_penalty_for_identity(self):
-        """Identity displacement should have zero penalty."""
-        disp = torch.zeros(1, 2, 32, 32, requires_grad=True)
+        """Identity displacement should have zero penalty for all modes."""
+        disp = torch.zeros(1, 2, 32, 32)
         
-        penalty = jacobian_penalty(disp, ndim=2, eps=0.01, mode='relu')
-        
-        assert penalty.item() < 1e-6
-        print("✓ Zero penalty for identity displacement")
+        for mode in ['relu', 'exp']:
+            penalty = jacobian_penalty(disp, ndim=2, eps=0.01, mode=mode)
+            assert penalty.item() < 1e-6, f"mode={mode}: expected ~0, got {penalty.item()}"
+        print("✓ Zero penalty for identity displacement (all modes)")
     
-    def test_penalty_gradient_exists(self):
-        """Penalty should be differentiable."""
-        # Use a displacement that will actually trigger the penalty
-        H, W = 32, 32
+    def test_exp_mode_zero_for_healthy_voxels(self):
+        """Exp mode should produce EXACTLY zero for voxels with det_J >= eps."""
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Create folding displacement (high-freq sinusoid)
+        # Small uniform expansion: det_J > 1 everywhere, well above eps=0.01
+        H, W = 32, 32
+        disp = torch.zeros(1, 2, H, W, device=device)
+        scale = 0.05
+        for i in range(H):
+            for j in range(W):
+                disp[0, 0, i, j] = scale * j
+                disp[0, 1, i, j] = scale * i
+        
+        penalty = jacobian_penalty(disp, ndim=2, eps=0.01, mode='exp')
+        assert penalty.item() == 0.0, f"Exp mode should be exactly 0 for healthy field, got {penalty.item()}"
+        print("✓ Exp mode is exactly zero for healthy displacement fields")
+    
+    def test_exp_mode_much_stronger_than_relu(self):
+        """Exp mode should produce much larger penalty than relu for same folding."""
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        H, W = 32, 32
+        
         yy, xx = torch.meshgrid(
             torch.linspace(-1, 1, H, device=device),
             torch.linspace(-1, 1, W, device=device),
             indexing='ij'
         )
-        disp = torch.zeros(1, 2, H, W, device=device, requires_grad=True)
-        # We can't assign directly to a leaf tensor, so create data first
+        disp = torch.zeros(1, 2, H, W, device=device)
+        disp[0, 0] = 5.0 * torch.sin(4 * np.pi * xx)
+        
+        penalty_relu = jacobian_penalty(disp, ndim=2, eps=0.01, mode='relu')
+        penalty_exp = jacobian_penalty(disp, ndim=2, eps=0.01, mode='exp')
+        
+        ratio = penalty_exp.item() / max(penalty_relu.item(), 1e-10)
+        assert ratio > 10, f"Exp should be >>10x stronger than relu, got ratio={ratio:.1f}"
+        print(f"✓ Exp mode is {ratio:.0f}x stronger than relu for same folding field")
+    
+    def test_exp_scale_controls_steepness(self):
+        """Higher exp_scale should produce stronger penalty."""
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        H, W = 32, 32
+        
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1, 1, H, device=device),
+            torch.linspace(-1, 1, W, device=device),
+            indexing='ij'
+        )
+        disp = torch.zeros(1, 2, H, W, device=device)
+        disp[0, 0] = 3.0 * torch.sin(4 * np.pi * xx)
+        
+        penalty_low = jacobian_penalty(disp, ndim=2, mode='exp', exp_scale=5.0)
+        penalty_high = jacobian_penalty(disp, ndim=2, mode='exp', exp_scale=20.0)
+        
+        assert penalty_high > penalty_low
+        print(f"✓ exp_scale controls steepness: scale=5 → {penalty_low.item():.2f}, scale=20 → {penalty_high.item():.2f}")
+    
+    def test_penalty_gradient_exists(self):
+        """Penalty should be differentiable (both relu and exp modes)."""
+        H, W = 32, 32
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1, 1, H, device=device),
+            torch.linspace(-1, 1, W, device=device),
+            indexing='ij'
+        )
         disp_data = torch.zeros(1, 2, H, W, device=device)
         disp_data[0, 0] = 5.0 * torch.sin(4 * np.pi * xx)
         
-        # Clone as leaf tensor with requires_grad
-        disp = disp_data.clone().requires_grad_(True)
-        
-        penalty = jacobian_penalty(disp, ndim=2, eps=0.01, mode='relu')
-        
-        assert penalty.item() > 0, "Need non-zero penalty to test gradients"
-        penalty.backward()
-        
-        assert disp.grad is not None, "Gradient should exist"
-        assert not torch.isnan(disp.grad).any(), "Gradient should not have NaN"
-        print("✓ Jacobian penalty is differentiable")
+        for mode in ['relu', 'exp']:
+            disp = disp_data.clone().requires_grad_(True)
+            penalty = jacobian_penalty(disp, ndim=2, eps=0.01, mode=mode)
+            
+            assert penalty.item() > 0, f"mode={mode}: need non-zero penalty"
+            penalty.backward()
+            
+            assert disp.grad is not None, f"mode={mode}: gradient should exist"
+            assert not torch.isnan(disp.grad).any(), f"mode={mode}: no NaN in gradient"
+        print("✓ Jacobian penalty is differentiable (relu and exp)")
     
     def test_penalty_increases_with_folding(self):
         """Penalty should be higher for folded displacements."""
         H, W = 32, 32
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # Mild displacement
         disp_mild = torch.randn(1, 2, H, W, device=device) * 0.5
-        penalty_mild = jacobian_penalty(disp_mild, ndim=2, eps=0.01, mode='relu')
         
-        # Strong displacement that causes folding
         yy, xx = torch.meshgrid(
             torch.linspace(-1, 1, H, device=device),
             torch.linspace(-1, 1, W, device=device),
@@ -217,21 +265,37 @@ class TestJacobianPenalty:
         )
         disp_strong = torch.zeros(1, 2, H, W, device=device)
         disp_strong[0, 0] = 5.0 * torch.sin(4 * np.pi * xx)
-        penalty_strong = jacobian_penalty(disp_strong, ndim=2, eps=0.01, mode='relu')
         
-        assert penalty_strong > penalty_mild
-        print(f"✓ Penalty increases with folding: mild={penalty_mild.item():.4f}, strong={penalty_strong.item():.4f}")
+        for mode in ['relu', 'exp']:
+            penalty_mild = jacobian_penalty(disp_mild, ndim=2, eps=0.01, mode=mode)
+            penalty_strong = jacobian_penalty(disp_strong, ndim=2, eps=0.01, mode=mode)
+            assert penalty_strong > penalty_mild, f"mode={mode}: strong should exceed mild"
+        print("✓ Penalty increases with folding (relu and exp)")
     
     def test_3d_penalty(self):
-        """Test 3D Jacobian penalty."""
+        """Test 3D Jacobian penalty (exp mode)."""
         disp = torch.zeros(1, 3, 16, 16, 16, requires_grad=True)
         
-        penalty = jacobian_penalty(disp, ndim=3, eps=0.01, mode='relu')
+        penalty = jacobian_penalty(disp, ndim=3, eps=0.01, mode='exp')
         penalty.backward()
         
         assert penalty.item() < 1e-6
         assert disp.grad is not None
-        print("✓ 3D Jacobian penalty works correctly")
+        print("✓ 3D Jacobian penalty works correctly (exp mode)")
+    
+    def test_exp_no_overflow(self):
+        """Exp mode should not overflow even with extreme folding."""
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        H, W = 32, 32
+        
+        # Create extreme displacement
+        disp = torch.randn(1, 2, H, W, device=device) * 50.0
+        
+        penalty = jacobian_penalty(disp, ndim=2, mode='exp', exp_scale=50.0)
+        
+        assert not torch.isinf(penalty), "Exp mode should not overflow"
+        assert not torch.isnan(penalty), "Exp mode should not produce NaN"
+        print(f"✓ Exp mode handles extreme folding without overflow: penalty={penalty.item():.2e}")
 
 
 # =============================================================================
@@ -678,9 +742,13 @@ def run_all_tests():
     print("\n--- Jacobian Penalty Tests ---")
     test_penalty = TestJacobianPenalty()
     test_penalty.test_zero_penalty_for_identity()
+    test_penalty.test_exp_mode_zero_for_healthy_voxels()
+    test_penalty.test_exp_mode_much_stronger_than_relu()
+    test_penalty.test_exp_scale_controls_steepness()
     test_penalty.test_penalty_gradient_exists()
     test_penalty.test_penalty_increases_with_folding()
     test_penalty.test_3d_penalty()
+    test_penalty.test_exp_no_overflow()
     
     # Fold Detection Tests
     print("\n--- Fold Detection Tests ---")

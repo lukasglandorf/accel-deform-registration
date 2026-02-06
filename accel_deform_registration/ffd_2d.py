@@ -36,6 +36,8 @@ def register_ffd_2d(
     smooth_weight: float = 0.005,
     bending_weight: float = 0.01,
     jacobian_penalty_weight: float = 0.0,
+    jacobian_mode: str = 'exp',
+    jacobian_exp_scale: float = 10.0,
     use_svf: bool = False,
     svf_steps: int = 7,
     n_iterations: int = 2000,
@@ -83,8 +85,18 @@ def register_ffd_2d(
         Weight for Jacobian determinant penalty to discourage folding.
         Penalizes regions where det(J) < 0.01 (near-singular or folded).
         - Default: 0.0 (disabled)
-        - Range: [0, 10], typical values 0.1-2.0 when enabled
+        - Range: [0, 10], typical values 0.1-2.0 with mode='exp'
         - Set > 0 if deformation field contains folds (topology violations)
+    jacobian_mode : str
+        Penalty mode for Jacobian regularization:
+        - 'exp': (default, recommended) Gated exponential penalty. Exactly
+          zero for healthy voxels, exponential growth for violators.
+          Effective with modest weights (0.1-2.0).
+        - 'relu': Quadratic penalty. Requires much higher weights (>1000).
+        - 'log': Soft log-barrier encouraging det(J) ≈ 1 everywhere.
+    jacobian_exp_scale : float
+        Steepness of exponential penalty (only for mode='exp').
+        Higher = stricter. Default 10.0. Range: 5-50.
     use_svf : bool
         If True, use Stationary Velocity Field (SVF) parameterization with
         scaling-and-squaring to guarantee diffeomorphic (fold-free) transforms.
@@ -344,7 +356,8 @@ def register_ffd_2d(
         loss_jacobian = torch.tensor(0.0, device=device)
         if jacobian_penalty_weight > 0:
             loss_jacobian = jacobian_penalty_weight * jacobian_penalty(
-                disp_full, ndim=2, eps=0.01, mode='relu'
+                disp_full, ndim=2, eps=0.01, mode=jacobian_mode,
+                exp_scale=jacobian_exp_scale,
             )
         
         # Total loss

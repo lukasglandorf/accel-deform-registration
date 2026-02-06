@@ -246,8 +246,9 @@ def jacobian_penalty(
     displacement: torch.Tensor,
     ndim: int,
     eps: float = 0.01,
-    mode: str = 'relu',
+    mode: str = 'exp',
     voxel_spacing: Optional[Tuple[float, ...]] = None,
+    exp_scale: float = 10.0,
 ) -> torch.Tensor:
     """
     Compute a differentiable penalty for negative/small Jacobian determinants.
@@ -267,10 +268,23 @@ def jacobian_penalty(
         - eps>0: also discourage near-singular regions
     mode : str
         Penalty mode:
-        - 'relu': ReLU(eps - det(J))^2, penalizes det(J) < eps
-        - 'log': (log(det(J) + delta))^2, soft penalty encouraging det(J) ≈ 1
+        - 'exp': (default, recommended) Gated exponential penalty.
+          exp(alpha * ReLU(eps - det_J)) - 1.  Exactly zero for healthy
+          voxels (det_J >= eps) and grows exponentially for violators.
+          This allows effective fold prevention with modest weights (0.1-2.0)
+          instead of the very large weights (>10000) needed with 'relu'.
+        - 'relu': ReLU(eps - det(J))^2, quadratic penalty for det(J) < eps.
+          Requires high weight when folds are sparse.
+        - 'log': (log(det(J) + delta))^2, soft penalty encouraging det(J) ≈ 1.
+          Acts on ALL voxels including healthy ones.
     voxel_spacing : tuple of float, optional
         Physical voxel spacing. Default (1, ..., 1).
+    exp_scale : float
+        Scale factor for 'exp' mode controlling exponential steepness.
+        Higher values = stronger punishment for negative determinants.
+        - Default: 10.0 (a det_J 0.5 below eps contributes ~exp(5)-1 ≈ 147)
+        - Range: 5-50, higher is stricter but can cause large gradients
+        Only used when mode='exp'.
     
     Returns
     -------
@@ -288,7 +302,13 @@ def jacobian_penalty(
     else:
         raise ValueError(f"ndim must be 2 or 3, got {ndim}")
     
-    if mode == 'relu':
+    if mode == 'exp':
+        # Gated exponential: exactly zero for det_J >= eps, exponential growth below.
+        # exp(alpha * ReLU(eps - det_J)) - 1
+        # Clamp exponent to prevent overflow (exp(50) ~ 5e21).
+        violation = F.relu(eps - det_J)
+        penalty = (torch.exp(torch.clamp(exp_scale * violation, max=50.0)) - 1.0).mean()
+    elif mode == 'relu':
         # Penalize det(J) < eps: ReLU(eps - det(J))^2
         penalty = (F.relu(eps - det_J) ** 2).mean()
     elif mode == 'log':
@@ -298,7 +318,7 @@ def jacobian_penalty(
         log_det = torch.log(det_J.clamp(min=delta))
         penalty = (log_det ** 2).mean()
     else:
-        raise ValueError(f"Unknown penalty mode: {mode}. Use 'relu' or 'log'.")
+        raise ValueError(f"Unknown penalty mode: {mode}. Use 'exp', 'relu' or 'log'.")
     
     return penalty
 
