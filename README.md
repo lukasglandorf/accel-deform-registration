@@ -435,14 +435,16 @@ pytest tests/ --cov=accel_deform_registration
 
 ## Citation
 
-If you use this package in your research, please cite:
+If you use this package in your research, please cite our paper for which it was developed:
 
 ```bibtex
-@software{accel_deform_registration,
-  author = {Glandorf, Lukas},
-  title = {Accelerated Deformable Registration},
-  year = {2026},
-  url = {https://github.com/lukasglandorf/accel-deform-registration}
+@article{glandorf2025vivo,
+  title={In Vivo Network-Level Cerebrovascular Mapping Reveals the Impact of Flow Topology on Capillary Stalls After Stroke},
+  author={Glandorf, Lukas and Droux, Jeanne and Jessen, Etienne and Wittmann, Bastian and Weber, Bruno and Wegener, Susanne and Menze, Bjoern and Leitgeb, Rainer and Schillinger, Dominik and El Amki, Mohamad and others},
+  journal={bioRxiv},
+  pages={2025--07},
+  year={2025},
+  publisher={Cold Spring Harbor Laboratory}
 }
 ```
 
