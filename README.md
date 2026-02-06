@@ -14,6 +14,45 @@ GPU-accelerated Free-Form Deformation (FFD) registration for 2D and 3D images us
 - **Loss comparison utility**: Compare all loss functions with single/multiscale approaches
 - **Boundary layer** option to reduce edge artifacts
 
+## Folding Prevention & Diffeomorphic Options
+
+- **Jacobian determinant penalty (recommended default)**: The library provides a differentiable Jacobian determinant penalty to discourage folding (local topology violations). The default mode is a gated exponential penalty (`mode='exp'`) which is exactly zero for healthy voxels (det(J) >= eps) and grows exponentially for violations. This is effective at preventing small, localized folds without requiring enormous scalar weights. Key parameters:
+    - `jacobian_penalty_weight`: global weight (enable by setting > 0). Typical values: 0.1–2.0 when using `mode='exp'`.
+    - `jacobian_mode`: one of `'exp'` (default/recommended), `'relu'` (quadratic), or `'log'` (soft log-barrier).
+    - `jacobian_exp_scale`: steepness of the exponential penalty (default 10.0). Higher → stronger punishment for negative determinants.
+
+- **SVF (Stationary Velocity Field) parameterization**: Set `use_svf=True` to parameterize the transform by a stationary velocity field and integrate it using scaling-and-squaring. When the velocity field is sufficiently smooth, this guarantees a diffeomorphic (fold-free) transform. Use `svf_steps` to control scaling-and-squaring accuracy (more steps = slower but safer). SVF is recommended when topology preservation is required (medical applications), at the cost of extra computation.
+
+- **Keeping velocity fields smooth**: SVF guarantees hold only if the velocity field `v` is smooth. Practical ways to keep `v` smooth:
+    - Regularize control coefficients with bending energy (`bending_weight`) or gradient penalties.
+    - Parameterize `v` on a coarse control grid and upsample with B-splines.
+    - Optionally apply a small Gaussian smoothing projection to control-grid coefficients each optimization step.
+
+- **Diagnostics**: Registration returns an `info` dictionary that includes `jacobian_stats` with `min_det`, `max_det`, `mean_det`, `num_folds`, `fold_fraction`, and `has_folds`. Use these to monitor folding during optimization.
+
+### Example (2D)
+
+```python
+from accel_deform_registration import register_ffd_2d
+
+disp, ctrl, pos, mask, info = register_ffd_2d(
+        moving, fixed,
+        grid_spacing=20,
+        n_iterations=100,
+        jacobian_penalty_weight=1.0,   # enable Jacobian penalty (exp mode)
+        jacobian_mode='exp',
+        jacobian_exp_scale=10.0,
+        use_svf=False,
+)
+
+# To use SVF instead (guaranteed diffeo if v is smooth):
+disp, ctrl, pos, mask, info = register_ffd_2d(
+        moving, fixed, use_svf=True, svf_steps=7
+)
+```
+
+These options let you choose a fast, strongly penalized approach (`jacobian_mode='exp'`) or a mathematically guaranteed diffeomorphic parameterization (`use_svf=True`).
+
 ## Installation
 
 ### From source (recommended for development)
