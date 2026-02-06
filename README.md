@@ -2,13 +2,15 @@
 
 GPU-accelerated Free-Form Deformation (FFD) registration for 2D and 3D images using PyTorch.
 
+Allowing registrations with densely spaced control points in seconds to minutes.
+
 ## Features
 
 - **B-spline FFD registration** for both 2D images and 3D volumes
 - **GPU acceleration** via PyTorch (CUDA, MPS, or CPU fallback)
 - **Per-axis grid spacing** for anisotropic data (e.g., different resolution per axis)
 - **Multiple similarity metrics**: Correlation, MAE, Mutual Information, Local NCC
-- **Regularization**: Configurable smoothness and bending energy penalties
+- **Regularization**: Configurable smoothness and bending energy penalties, optional penalty on negative Jacobian determinant to prevent/minimize folding (non Diffeomorphic transforms)
 - **Pyramid registration** for coarse-to-fine alignment via image downsampling
 - **Multiscale registration** for coarse-to-fine control point refinement at full resolution
 - **Loss comparison utility**: Compare all loss functions with single/multiscale approaches
@@ -311,7 +313,7 @@ for r in results:
 | `CorrelationLoss` | Pearson correlation (default) | Same-modality images |
 | `MAELoss` | Mean Absolute Error (L1) | General purpose |
 | `MutualInformationLoss` | MI with soft histogram | Multi-modal registration |
-| `MonaiGlobalMILoss` | MONAI's optimized Global MI | Multi-modal (fast, GPU) |
+| `MonaiGlobalMILoss` | MONAI's optimized Global MI | Multi-modal (fast, GPU) | Very GPU Memory Hungry |
 | `MonaiLocalNCCLoss` | MONAI's Local NCC | Robust same-modality |
 
 ### Using the Loss Function Factory
