@@ -14,6 +14,44 @@ GPU-accelerated Free-Form Deformation (FFD) registration for 2D and 3D images us
 - **Loss comparison utility**: Compare all loss functions with single/multiscale approaches
 - **Boundary layer** option to reduce edge artifacts
 
+## Installation
+
+### From source (recommended for development)
+
+```bash
+git clone https://github.com/lukasglandorf/accel-deform-registration.git
+cd accel-deform-registration
+pip install -e ".[all]"
+```
+### Recommended installation
+
+```bash
+pip install -e ".[all]".
+```
+
+### Basic installation
+
+```bash
+pip install -e .
+```
+
+### With optional dependencies
+
+```bash
+# For running examples with visualization
+pip install -e ".[examples]"
+
+# For development and testing
+pip install -e ".[dev]"
+
+# For optimized MONAI loss functions (recommended for large images)
+pip install -e ".[monai]"
+
+# Install everything
+pip install -e ".[all]"
+```
+
+
 ## Folding Prevention & Diffeomorphic Options
 
 - **Jacobian determinant penalty (recommended default)**: The library provides a differentiable Jacobian determinant penalty to discourage folding (local topology violations). The default mode is a gated exponential penalty (`mode='exp'`) which is exactly zero for healthy voxels (det(J) >= eps) and grows exponentially for violations. This is effective at preventing small, localized folds without requiring enormous scalar weights. Key parameters:
@@ -53,42 +91,6 @@ disp, ctrl, pos, mask, info = register_ffd_2d(
 
 These options let you choose a fast, strongly penalized approach (`jacobian_mode='exp'`) or a mathematically guaranteed diffeomorphic parameterization (`use_svf=True`).
 
-## Installation
-
-### From source (recommended for development)
-
-```bash
-git clone https://github.com/lukasglandorf/accel-deform-registration.git
-cd accel-deform-registration
-pip install -e ".[all]"
-```
-### Recommended installation
-
-```bash
-pip install -e ".[all]".
-```
-
-### Basic installation
-
-```bash
-pip install -e .
-```
-
-### With optional dependencies
-
-```bash
-# For running examples with visualization
-pip install -e ".[examples]"
-
-# For development and testing
-pip install -e ".[dev]"
-
-# For optimized MONAI loss functions (recommended for large images)
-pip install -e ".[monai]"
-
-# Install everything
-pip install -e ".[all]"
-```
 
 ## Quick Start
 
