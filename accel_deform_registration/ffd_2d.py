@@ -38,10 +38,12 @@ def register_ffd_2d(
     jacobian_penalty_weight: float = 0.0,
     jacobian_mode: str = 'exp',
     jacobian_exp_scale: float = 10.0,
+    jacobian_exp_max: float = 10.0,
     use_svf: bool = False,
     svf_steps: int = 7,
     n_iterations: int = 2000,
     lr: float = 0.5,
+    grad_clip_norm: Optional[float] = 10.0,
     padding_mode: str = 'border',
     use_boundary_layer: bool = True,
     loss_fn: Optional[BaseLoss] = None,
@@ -97,6 +99,9 @@ def register_ffd_2d(
     jacobian_exp_scale : float
         Steepness of exponential penalty (only for mode='exp').
         Higher = stricter. Default 10.0. Range: 5-50.
+    jacobian_exp_max : float
+        Maximum exponent value for exp penalty (only for mode='exp').
+        Default 50.0.
     use_svf : bool
         If True, use Stationary Velocity Field (SVF) parameterization with
         scaling-and-squaring to guarantee diffeomorphic (fold-free) transforms.
@@ -110,6 +115,9 @@ def register_ffd_2d(
         Number of optimization iterations. Default 2000.
     lr : float
         Learning rate for Adam optimizer. Default 0.5.
+    grad_clip_norm : float, optional
+        Max norm for gradient clipping. Set to None or <= 0 to disable.
+        Default 10.0.
     padding_mode : str
         Padding mode for grid_sample: 'border', 'zeros', or 'reflection'.
         Default 'border' (recommended for avoiding black rim artifacts).
@@ -358,6 +366,7 @@ def register_ffd_2d(
             loss_jacobian = jacobian_penalty_weight * jacobian_penalty(
                 disp_full, ndim=2, eps=0.01, mode=jacobian_mode,
                 exp_scale=jacobian_exp_scale,
+                exp_max=jacobian_exp_max,
             )
         
         # Total loss
@@ -372,7 +381,8 @@ def register_ffd_2d(
             break
         
         loss.backward()
-        torch.nn.utils.clip_grad_norm_([ctrl_disps], max_norm=10.0)
+        if grad_clip_norm is not None and grad_clip_norm > 0:
+            torch.nn.utils.clip_grad_norm_([ctrl_disps], max_norm=grad_clip_norm)
         optimizer.step()
         losses.append(loss.item())
         

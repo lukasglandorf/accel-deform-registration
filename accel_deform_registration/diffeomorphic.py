@@ -249,6 +249,7 @@ def jacobian_penalty(
     mode: str = 'exp',
     voxel_spacing: Optional[Tuple[float, ...]] = None,
     exp_scale: float = 10.0,
+    exp_max: float = 10.0,
 ) -> torch.Tensor:
     """
     Compute a differentiable penalty for negative/small Jacobian determinants.
@@ -285,6 +286,10 @@ def jacobian_penalty(
         - Default: 10.0 (a det_J 0.5 below eps contributes ~exp(5)-1 ≈ 147)
         - Range: 5-50, higher is stricter but can cause large gradients
         Only used when mode='exp'.
+    exp_max : float
+        Maximum exponent value for numerical stability (clamps exp_scale * violation).
+        Default 50.0 (exp(50) ≈ 5e21).
+        Only used when mode='exp'.
     
     Returns
     -------
@@ -307,7 +312,7 @@ def jacobian_penalty(
         # exp(alpha * ReLU(eps - det_J)) - 1
         # Clamp exponent to prevent overflow (exp(50) ~ 5e21).
         violation = F.relu(eps - det_J)
-        penalty = (torch.exp(torch.clamp(exp_scale * violation, max=50.0)) - 1.0).mean()
+        penalty = (torch.exp(torch.clamp(exp_scale * violation, max=exp_max)) - 1.0).mean()
     elif mode == 'relu':
         # Penalize det(J) < eps: ReLU(eps - det(J))^2
         penalty = (F.relu(eps - det_J) ** 2).mean()
