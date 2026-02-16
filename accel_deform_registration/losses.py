@@ -37,6 +37,7 @@ import torch.nn.functional as F
 # Check for MONAI availability
 try:
     from monai.losses.image_dissimilarity import GlobalMutualInformationLoss
+    from monai.losses import LocalNormalizedCrossCorrelationLoss
     MONAI_AVAILABLE = True
 except ImportError:
     MONAI_AVAILABLE = False
@@ -551,9 +552,6 @@ class MonaiLocalNCCLoss(BaseLoss):
         self.smooth_nr = smooth_nr
         self.smooth_dr = smooth_dr
         
-        # Import MONAI's LocalNormalizedCrossCorrelationLoss
-        from monai.losses import LocalNormalizedCrossCorrelationLoss
-        
         self._loss_fn = LocalNormalizedCrossCorrelationLoss(
             spatial_dims=spatial_dims,
             kernel_size=kernel_size,
@@ -648,7 +646,7 @@ def get_loss_function(name: str, **kwargs) -> BaseLoss:
         - num_bins (int): Number of bins for MI losses. Default 64.
         - normalize (bool): For MAELoss, normalize images first. Default True.
                           For MutualInformationLoss, use NMI. Default False.
-        - spatial_dims (int): For MonaiLocalNCCLoss. Required.
+        - spatial_dims (int): For MonaiLocalNCCLoss. Default 2.
         - kernel_size (int): For MonaiLocalNCCLoss. Default 9.
     
     Returns
@@ -696,6 +694,9 @@ def get_loss_function(name: str, **kwargs) -> BaseLoss:
             raise ImportError(
                 f"MONAI is required for '{name}'. Install with: pip install monai"
             )
+        # Default to 2D if spatial_dims not specified
+        if 'spatial_dims' not in kwargs:
+            kwargs['spatial_dims'] = 2
         return MonaiLocalNCCLoss(**kwargs)
     else:
         raise ValueError(

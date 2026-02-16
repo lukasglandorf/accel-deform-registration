@@ -47,6 +47,8 @@ def register_ffd_2d(
     padding_mode: str = 'border',
     use_boundary_layer: bool = True,
     loss_fn: Optional[BaseLoss] = None,
+    convergence_tol: Optional[float] = None,
+    convergence_window: int = 10,
     device: Optional[torch.device] = None,
     verbose: bool = True,
     warn_on_folds: bool = True,
@@ -128,6 +130,14 @@ def register_ffd_2d(
     loss_fn : BaseLoss, optional
         Loss function for similarity measurement. If None, uses CorrelationLoss.
         Available: CorrelationLoss, MAELoss, MutualInformationLoss, MonaiGlobalMILoss.
+    convergence_tol : float, optional
+        Convergence tolerance for early stopping. If None (default), runs for
+        full n_iterations. If specified, stops early when the average absolute
+        change in loss over the last `convergence_window` iterations is below
+        this threshold. Typical values: 1e-4 to 1e-6.
+    convergence_window : int
+        Number of iterations to average loss changes over for convergence
+        detection. Default 10.
     device : torch.device, optional
         PyTorch device. If None, auto-detect (CUDA > MPS > CPU).
     verbose : bool
@@ -310,8 +320,11 @@ def register_ffd_2d(
         print(f"    Using SVF parameterization with {svf_steps} integration steps")
     if verbose and jacobian_penalty_weight > 0:
         print(f"    Jacobian penalty weight: {jacobian_penalty_weight}")
+    if verbose and convergence_tol is not None:
+        print(f"    Convergence tolerance: {convergence_tol} (window={convergence_window})")
     
     # Optimization loop
+    converged = False
     for i in range(n_iterations):
         optimizer.zero_grad()
         
@@ -386,6 +399,17 @@ def register_ffd_2d(
         optimizer.step()
         losses.append(loss.item())
         
+        # Check for convergence
+        if convergence_tol is not None and len(losses) >= convergence_window + 1:
+            recent_losses = losses[-(convergence_window + 1):]
+            avg_change = sum(abs(recent_losses[j] - recent_losses[j-1]) 
+                           for j in range(1, len(recent_losses))) / convergence_window
+            if avg_change < convergence_tol:
+                converged = True
+                if verbose:
+                    print(f"    Converged at iteration {i+1}: avg change = {avg_change:.2e} < {convergence_tol:.2e}")
+                break
+        
         if verbose and (i + 1) % 50 == 0:
             max_d = disp_magnitude.max().item()
             jac_str = f", jac={loss_jacobian.item():.4f}" if jacobian_penalty_weight > 0 else ""
@@ -418,8 +442,7 @@ def register_ffd_2d(
     fold_stats = detect_folds(disp_voxels, ndim=2, warn=warn_on_folds)
     
     info = {
-        "iterations": len(losses),
-        "initial_loss": initial_loss,
+        "iterations": len(losses),        "converged": converged,        "initial_loss": initial_loss,
         "final_loss": losses[-1] if losses else 0.0,
         "initial_correlation": -initial_loss if initial_loss else 0.0,
         "final_correlation": -losses[-1] if losses else 0.0,
